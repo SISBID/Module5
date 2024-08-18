@@ -1,0 +1,239 @@
+---
+title: "2024 SISBID Dimension Reduction Demo"
+author: "Genevera I. Allen & Yufeng Liu"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# PCA Demo Using Digits Data
+
+Load Packages
+```{r, echo = TRUE}
+library(ggplot2)
+library(GGally)
+```
+
+Load Digits Data
+
+```{r, echo = TRUE}
+#code for digits - ALL
+rm(list=ls())
+load("UnsupL_SISBID_2024.Rdata")
+```
+
+Create Subset of just 3's and 8's
+
+```{r, echo = TRUE}
+dat38 = rbind(digits[which(rownames(digits)==3),],digits[which(rownames(digits)==8),])
+```
+
+## Try Princomp
+
+With Centering & Scaling
+
+```{r, echo = TRUE}
+pc = princomp(dat38) #default - centers and scales
+biplot(pc,cex=.7)
+screeplot(pc)
+```
+
+PC Scatterplot
+
+```{r, echo = TRUE}
+PC1 <- as.matrix(x=pc$scores[,1]) 
+PC2 <- as.matrix(pc$scores[,2])
+plot(PC1,PC2,type="n",xlab="PC1",ylab="PC2")
+text(PC1,PC2,rownames(dat38),col=rownames(dat38))
+```
+
+
+Pairs Plot Using ggpairs
+
+```{r, echo = TRUE}
+PC1 <- as.matrix(x=pc$scores[,1]) 
+PC2 <- as.matrix(pc$scores[,2])
+PC3 <- as.matrix(pc$scores[,3])
+PC4 <- as.matrix(pc$scores[,4])
+PC5<-as.matrix(pc$scores[,5])
+
+pc.df.digits <- data.frame(digit_name = row.names(dat38), PC1, PC2,PC3, PC4, PC5)
+
+ggpairs(pc.df.digits, mapping = aes(color = digit_name))
+```
+
+PC Loadings
+
+```{r, echo = TRUE}
+par(mfrow=c(3,5),mar=c(.1,.1,.1,.1))
+for(i in 1:15){
+  imagedigit(pc$loadings[,i])
+}
+```
+
+Variance explained
+
+```{r, echo = TRUE}
+
+varex = 100*pc$sdev^2/sum(pc$sdev^2)
+par(mfrow=c(2,1))
+screeplot(pc)
+plot(varex,type="l",ylab="% Variance Explained",xlab="Component")
+```
+
+Cumulative variance explained
+
+```{r, echo = TRUE}
+#cumulative variance explained
+cvarex = NULL
+for(i in 1:ncol(cdat)){
+  cvarex[i] = sum(varex[1:i])
+}
+plot(cvarex,type="l",ylab="Cumulative Variance Explained",xlab="Component", main = "Principal Component vs. Variance Explained" )
+```
+
+
+## Compare to SVD 
+
+Without Centering & Scaling
+
+```{r, echp=TRUE}
+svdd = svd(dat38)
+U = svdd$u
+V = svdd$v #PC loadings
+D = svdd$d
+Z = dat38%*%V #PCs
+```
+
+PC Scatterplots
+
+```{r, echo = TRUE}
+PC1 <- U[,1] 
+PC2 <- U[,2]
+plot(PC1,PC2,type="n",xlab="PC1",ylab="PC2")
+text(PC1,PC2,rownames(dat38),col=rownames(dat38))
+```
+
+Pairs Plot Using ggpairs
+
+```{r, echo = TRUE}
+PC1 <- U[,1] 
+PC2 <- U[,2]
+PC3 <- U[,3]
+PC4 <- U[,4]
+PC5 <- U[,5]
+
+pc.df.digits <- data.frame(digit_name = row.names(dat38), PC1, PC2,PC3, PC4, PC5)
+
+ggpairs(pc.df.digits, mapping = aes(color = digit_name))
+```
+
+PC Loadings
+
+```{r, echo = TRUE}
+par(mfrow=c(3,5),mar=c(.1,.1,.1,.1))
+for(i in 1:15){
+  imagedigit(V[,i])
+}
+```
+
+
+Variance Explained
+```{r, echo = TRUE}
+#Variance Explained
+varex = 0
+cumvar = 0
+denom = sum(D^2)
+for(i in 1:256){
+  varex[i] = D[i]^2/denom
+  cumvar[i] = sum(D[1:i]^2)/denom
+}
+
+```
+
+
+Screeplot
+```{r, echo = TRUE}
+
+par(mfrow=c(1,2))
+plot(1:256,varex,type="l",lwd=2,xlab="PC",ylab="% Variance Explained")
+plot(1:256,cumvar,type="l",lwd=2,xlab="PC",ylab="Cummulative Variance Explained")
+```
+
+
+# PCA Demo Using College Data
+
+Load in Packages
+```{r, echo = TRUE}
+library(ISLR)
+```
+
+```{r, echo  = TRUE}
+data(College)
+cdat = College[,2:18]
+dim(cdat)
+names(cdat)
+```
+
+```{r, echo = TRUE}
+pc = princomp(cdat) #default - centers and scales
+
+#Go back and display these plots side by side
+
+biplot(pc,cex=.7)
+screeplot(pc)
+
+```
+
+scatter plots - patterns among observations
+
+```{r, echo = TRUE}
+PC1 <- as.matrix(x=pc$scores[,1]) 
+PC2 <- as.matrix(pc$scores[,2])
+
+PC <- data.frame(State = row.names(cdat), PC1, PC2)
+ggplot(PC, aes(PC1, PC2)) + 
+  geom_text(aes(label = State), size = 3) +
+  xlab("PC1") + 
+  ylab("PC2") + 
+  ggtitle("First Two Principal Components of College Data")
+
+```
+
+Pairs Plot
+
+```{r, echo = TRUE}
+comp_labels<-c("PC1","PC2","PC3","PC4", "PC5")
+pairs(pc$scores[,1:5], labels = comp_labels, main = "Pairs of PC's for College Data")
+```
+
+Loadings - variables that contribute to these patterns
+
+```{r, echo = TRUE}
+
+par(mfrow=c(2,1))
+barplot(pc$loadings[,1],cex.names=.6,main="PC 1 Loadings")
+barplot(pc$loadings[,2],cex.names=.6,main="PC 2 Loadings")
+```
+
+Variance explained
+
+```{r, echo = TRUE}
+
+varex = 100*pc$sdev^2/sum(pc$sdev^2)
+par(mfrow=c(2,1))
+screeplot(pc)
+plot(varex,type="l",ylab="% Variance Explained",xlab="Component")
+```
+
+Cumulative variance explained
+
+```{r, echo = TRUE}
+#cumulative variance explained
+cvarex = NULL
+for(i in 1:ncol(cdat)){
+  cvarex[i] = sum(varex[1:i])
+}
+plot(cvarex,type="l",ylab="Cumulative Variance Explained",xlab="Component", main = "Principal Component V. Variance Explained" )
+```
+
