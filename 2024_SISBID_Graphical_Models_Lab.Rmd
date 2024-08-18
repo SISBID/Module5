@@ -1,0 +1,288 @@
+---
+title: "2024 SISBID Graphical Models Lab"
+author: "Genevera I. Allen and Yufeng Liu"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r message= FALSE, warning= FALSE}
+
+library("igraph")
+library("huge")
+library("glasso")
+library("glmnet")
+library("ggplot2")
+```
+
+Read the Sachs et al data: Flow cytometry proteomics in single cells, $p = 11$ proteins measured in $n = 6466$ cells.
+```{r}
+load("UnsupL_SISBID_2024.Rdata")
+p <- ncol(sachsdat)
+n <- nrow(sachsdat)
+dim(sachsdat)
+head(sachsdat)
+```
+
+
+### Coexpression network 
+#### simple thresholding of correlations, at a cutoff chosen to give similar number of edges to partial correlation methods  
+* a randomly chosen threshold
+```{r}
+sachscor = cor(sachsdat)
+tau <- 0.1
+A1 <- abs(sachscor) > tau
+diag(A1) <- 0
+sum(A1)/2
+```
+
+
+#### testing for nonzero correlations     
+* testing for nonzero correlation, using Fisher Z-transform
+```{r}
+fisherzs <- atanh(sachscor)
+fisherps  <- 2*pnorm(abs(fisherzs), 0, 1/sqrt(n-3), lower.tail=FALSE)
+A2 <- fisherps < (0.01/(p*(p-1)/2))
+diag(A2) <- 0
+sum(A2)/2
+```
+
+
+#### plot the two networks
+```{r}
+g1 <- graph.adjacency(A1, mode="undirected")
+g2 <- graph.adjacency(A2, mode="undirected")
+```
+
+```{r}
+plot(g1,layout=layout.circle(g1), main='simple thresholding of correlations')
+plot(g2,layout=layout.circle(g2), main='testing for nonzero correlations')
+
+```
+
+## Partial correlation networks  
+inverse covariance matrix
+```{r}
+invcov <- abs(round(solve(sachscor),3)) 
+invcor <- cov2cor(invcov)
+A1 <- 1*(invcor > 0.05)
+diag(A1) <- 0
+sum(A1)/2
+ginv <- graph.adjacency(A1, mode="undirected")
+```
+
+```{r}
+plot(ginv,layout=layout.circle(ginv),main = "Partial correlation networks")
+```
+
+### Graphical lasso  
+Calculate lambda, based on formula in the slides (the third method)
+```{r}
+alpha <- 0.01
+num <- qt(p=alpha/(2*(p^2)),df=n-2, lower.tail=F)
+lambda <- num / sqrt(n-2 + num)
+```
+
+Apply glasso
+```{r}
+glasso.est <- glasso(s=sachscor,rho=lambda*4.2,approx=FALSE,
+                     penalize.diagonal=FALSE)
+A2 <- abs(glasso.est$wi) > 1E-16
+diag(A2) <- 0
+gglasso <- graph.adjacency(A2, mode="undirected")
+```
+
+### Neighborhood selection
+```{r}
+ns.est <- glasso(s=sachscor, rho=lambda, approx=TRUE, penalize.diagonal=FALSE)
+A3 <- abs(ns.est$wi) > 1E-16; diag(A3) <- 0
+gns <- graph.adjacency(A3, mode="undirected")
+```
+
+Compare graph estimates:
+```{r}
+plot(gglasso,layout=layout.circle(g1), main='Graphical Lasso')
+plot(gns,layout=layout.circle(g2), main='Neighborhood Selection')
+```
+
+Hint: Try changing $\lambda$ and see how the graph estimates change.
+
+
+Neighborhood selection estimate with huge (Stability selection for the value of $\lambda$)  
+```{r}
+X <- data.matrix(scale(sachsdat))
+neth = huge(X,method="mb")
+plot(neth)
+```
+
+
+```{r}
+## stability selection with huge
+net.s <- huge.select(neth, criterion="stars")
+net.s
+plot(net.s)
+```
+
+
+```{r}
+#larger lambda
+mat <- neth$path[[2]]
+neti <- as.undirected(graph_from_adjacency_matrix(mat))
+plot(neti,vertex.label=colnames(X),vertex.size=2,vertex.label.cex=1.2,vertex.label.dist=1,layout=layout_with_kk)
+```
+
+
+```{r}
+#smaller lambda
+mat = neth$path[[5]]
+neti = as.undirected(graph_from_adjacency_matrix(mat))
+plot(neti,vertex.label=colnames(X),vertex.size=2,vertex.label.cex=1.2,vertex.label.dist=1,layout=layout_with_kk)
+```
+
+## Nonparanormal Models: rank-based correlation
+```{r}
+scor <- cor(sachsdat,method='spearman')
+scor <- 2*sin(scor*pi/6)
+npn.est <- glasso(s=scor, rho=lambda, approx=FALSE, penalize.diagonal=FALSE)
+A4 <- abs(npn.est$wi) > 1E-16
+diag(A4) <- 0
+gnp1 <- graph.adjacency(A4, mode="undirected")
+```
+
+## Nonparanormal Models -- alternative estiamtion
+```{r}
+npn.cor <- huge.npn(x=sachsdat, npn.func="skeptic", npn.thresh=NULL, verbose=FALSE)
+npn.est <- glasso(s=npn.cor, rho=lambda, penalize.diagonal=FALSE)
+A5 <- abs(npn.est$wi) > 1E-16
+diag(A5) <- 0
+gnp2 <- graph.adjacency(A5, mode="undirected")
+```
+
+## binary network estimation
+```{r}
+sachsbin <- 1*(sachsdat > 0) + -1*(sachsdat <= 0)
+head(sachsbin)
+bin.est <- matrix(0,p,p)
+## estiamte the neighborhood for each node 
+for(j in 1:p){
+  ## this is the same method used in neighborhood selection, the only difference is 'family'
+  nbr <- glmnet(x=sachsbin[,-j], y=sachsbin[,j], family='binomial', lambda=lambda) 
+  bin.est[j,-j] <- 1*(abs(as(nbr$beta,"matrix")) > 0)	#store the estimates in jth row of matrix
+}
+A6 <- bin.est
+diag(A6) <- 0
+sum(A6)/2
+gising <- graph.adjacency(A6, mode="undirected")
+```
+
+## plot the networks
+```{r}
+plot(ginv,layout=layout.circle(ginv), main='Partial correlation networks')
+plot(gglasso,layout=layout.circle(gglasso), main='Glasso')
+plot(gns,layout=layout.circle(gns), main='Neighborhood selection')
+plot(gnp1,layout=layout.circle(gnp1), main='nonparanormal')
+plot(gnp2,layout=layout.circle(gnp2), main='nonparanormal - v2')
+plot(gising,layout=layout.circle(gising), main='Binary')
+```
+
+
+<!-- ## WGCNA package  -->
+
+<!-- ```{r} -->
+<!-- # construct a weighted network -->
+<!-- adj_wgcna <- adjacency(sachsdat,power = 6) -->
+<!-- ``` -->
+
+<!-- compare with correlation matrix and thresholded correlation matrix -->
+<!-- ```{r} -->
+<!-- heatmap(adj_wgcna,main = "weighted correlation matrix by WGCNA") -->
+
+<!-- colnames(sachscor) = colnames(sachsdat) -->
+<!-- rownames(sachscor) = colnames(sachsdat) -->
+<!-- heatmap(sachscor,main = "correlation matrix") -->
+
+<!-- thresholded_correlation <- sachscor*(abs(sachscor) > 0.1) -->
+<!-- colnames(thresholded_correlation) = colnames(sachsdat) -->
+<!-- rownames(thresholded_correlation) = colnames(sachsdat) -->
+<!-- heatmap(thresholded_correlation, main = "thresholded correlation matrix") -->
+<!-- ``` -->
+
+
+## Community detection with stochastic block models
+
+```{r}
+# generation function
+gen.A.from.B <- function(B,n,c,undirected=TRUE){
+  g <- vector()
+  K <- length(c)
+  for(i in 1:(K-1)){
+    g <- c(g,rep(i,c[i]*n))
+  }
+  g <- c(g,rep(K,n - length(g)))
+  Z <- matrix(0,n,K)
+  Z[cbind(1:n,g)] <- 1
+  P <- Z%*%B%*%t(Z)
+  n <- nrow(P)
+  if(undirected){
+    upper.tri.index <- which(upper.tri(P))
+    tmp.rand <- runif(n=length(upper.tri.index))
+    #A <- matrix(0,n,n)
+    A <- rsparsematrix(n,n,0)
+    A[upper.tri.index[tmp.rand<P[upper.tri.index]]] <- 1
+    A <- A+t(A)
+    diag(A) <- 0
+    return(list(A=A,g=g)) 
+  }else{
+    A <- matrix(0,n,n)
+    r.seq <- runif(n=length(P))
+    A[r.seq < as.numeric(P)] <- 1
+    diag(A) <- 0
+    return(list(A=A,g=g)) 
+  }
+}
+```
+
+
+visualization with a small network
+```{r}
+n <- 100
+K <- 2
+B <- matrix(0.05,K,K)
+diag(B) <- 0.1
+c <-  rep(1/K,K)
+graph <- gen.A.from.B(B,n,c)
+A <- graph$A
+true_label <- graph$g
+neti = as.undirected(graph_from_adjacency_matrix(A))
+plot(neti,layout=layout_with_kk, main='stochastic block models')
+```
+
+community detection with stochastic block models
+```{r}
+n <- 1000
+K <- 2
+B <- matrix(0.05,K,K)
+diag(B) <- 0.1
+c <-  rep(1/K,K)
+graph <- gen.A.from.B(B,n,c)
+A <- graph$A
+true_label <- graph$g
+evA <- RSpectra::eigs(A,k = K)
+clusterA <- kmeans(evA$vectors,K)
+estimated_label <- clusterA$cluster
+```
+
+plot
+```{r}
+newdata <- data.frame(v1 = evA$vectors[,1], v2 = evA$vectors[,2], true_label = as.factor(true_label), estimated_label =  as.factor(estimated_label))
+ggplot(newdata)+
+  geom_point(aes(x = v1,y = v2,colour = estimated_label, shape = true_label))
+```
+
+
+
